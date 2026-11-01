@@ -6,6 +6,7 @@
 //   SonarLivePanel-Setup.exe                         install / upgrade (wizard)
 //   SonarLivePanel-Setup.exe /silent [/desktop] [/startup]
 //   Uninstall.exe /uninstall [/silent] [/purge]      /purge also deletes settings, names and pin
+//   Uninstall.exe /uninstall /fromapp                started from the panel's menu: closes it without asking
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -18,8 +19,8 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Sonar Live Panel Setup")]
 [assembly: AssemblyProduct("Sonar Live Panel")]
-[assembly: AssemblyVersion("1.1.0.0")]       // keep in step with LivePanel.cs
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.2.0.0")]       // keep in step with LivePanel.cs
+[assembly: AssemblyFileVersion("1.2.0.0")]
 // Setup usually runs from Downloads, where a malicious site could have dropped a fake DLL:
 // load winmm/user32/shell32 only from System32, never from Setup's own folder.
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -51,7 +52,13 @@ namespace LivePanelSetup
         }
 
         public static string ExePath { get { return Path.Combine(InstallDir, Exe); } }
-        public static string StartMenuLink { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), Name + ".lnk"); } }
+        public static string UninstallerPath { get { return Path.Combine(InstallDir, Uninstaller); } }
+        // Start Menu folder holding the app and an "Uninstall" shortcut.
+        public static string StartMenuFolder { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), Name); } }
+        public static string StartMenuLink { get { return Path.Combine(StartMenuFolder, Name + ".lnk"); } }
+        public static string UninstallLink { get { return Path.Combine(StartMenuFolder, "Uninstall " + Name + ".lnk"); } }
+        // 1.0-1.1 put a single shortcut straight in Programs; updates and uninstall remove it.
+        public static string LegacyStartMenuLink { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), Name + ".lnk"); } }
         public static string DesktopLink { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Name + ".lnk"); } }
 
         // Either the Apps entry or the program file counts, so a copy that lost its Apps entry is still
@@ -112,8 +119,12 @@ namespace LivePanelSetup
             if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(uninstaller), StringComparison.OrdinalIgnoreCase))
                 File.Copy(self, uninstaller, true);
 
-            SetShortcut(Product.StartMenuLink, o.StartMenu);
-            SetShortcut(Product.DesktopLink, o.Desktop);
+            DeleteFile(Product.LegacyStartMenuLink);
+            if (o.StartMenu) Directory.CreateDirectory(Product.StartMenuFolder);
+            SetShortcut(Product.StartMenuLink, o.StartMenu, Product.ExePath, "", "Switch Sonar tracks live from the computer keyboard");
+            SetShortcut(Product.UninstallLink, o.StartMenu, uninstaller, "/uninstall", "Remove " + Product.Name);
+            if (!o.StartMenu) DeleteEmptyFolder(Product.StartMenuFolder);
+            SetShortcut(Product.DesktopLink, o.Desktop, Product.ExePath, "", "Switch Sonar tracks live from the computer keyboard");
             using (RegistryKey run = Registry.CurrentUser.CreateSubKey(Product.RunKey))
             {
                 if (o.Startup) run.SetValue(Product.RunValue, "\"" + Product.ExePath + "\"");
@@ -142,6 +153,9 @@ namespace LivePanelSetup
         {
             string dir = Product.InstallDir;
             DeleteFile(Product.StartMenuLink);
+            DeleteFile(Product.UninstallLink);
+            DeleteEmptyFolder(Product.StartMenuFolder);
+            DeleteFile(Product.LegacyStartMenuLink);
             DeleteFile(Product.DesktopLink);
             using (RegistryKey run = Registry.CurrentUser.OpenSubKey(Product.RunKey, true))
                 if (run != null) run.DeleteValue(Product.RunValue, false);
@@ -173,7 +187,12 @@ namespace LivePanelSetup
             if (File.Exists(path)) File.Delete(path);
         }
 
-        static void SetShortcut(string link, bool wanted)
+        static void DeleteEmptyFolder(string path)
+        {
+            if (Directory.Exists(path) && Directory.GetFileSystemEntries(path).Length == 0) Directory.Delete(path);
+        }
+
+        static void SetShortcut(string link, bool wanted, string target, string args, string description)
         {
             if (!wanted) { DeleteFile(link); return; }
             Type shellType = Type.GetTypeFromProgID("WScript.Shell");
@@ -181,9 +200,10 @@ namespace LivePanelSetup
             try
             {
                 dynamic s = shell.CreateShortcut(link);
-                s.TargetPath = Product.ExePath;
+                s.TargetPath = target;
+                s.Arguments = args;
                 s.WorkingDirectory = Product.InstallDir;
-                s.Description = "Switch Sonar tracks live from the computer keyboard";
+                s.Description = description;
                 s.IconLocation = Product.ExePath + ",0";
                 s.Save();
                 Marshal.FinalReleaseComObject(s);
@@ -253,6 +273,24 @@ namespace LivePanelSetup
         [DllImport("kernel32.dll")] static extern bool SetDefaultDllDirectories(int flags);
         const int LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x800;
 
+        // Confirms, closes the installed panel, removes everything and says so. False if the user backed out.
+        public static bool UninstallWithPrompts(bool askToClosePanel)
+        {
+            Options o = new Options();
+            using (UninstallForm f = new UninstallForm())
+            {
+                if (f.ShowDialog() != DialogResult.OK) return false;
+                o.Purge = f.Purge;
+            }
+            if (!Product.CloseRunningPanel(askToClosePanel)) return false;
+            Installer.Uninstall(o);
+            MessageBox.Show(o.Purge
+                ? "Sonar Live Panel was removed."
+                : "Sonar Live Panel was removed. Your settings, saved track names and pin were kept in:\n" + Product.InstallDir,
+                Product.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return true;
+        }
+
         [STAThread]
         static int Main(string[] args)
         {
@@ -268,22 +306,9 @@ namespace LivePanelSetup
             {
                 if (a.Contains("/uninstall"))
                 {
-                    Options o = new Options { Purge = a.Contains("/purge") };
-                    if (!silent)
-                    {
-                        using (UninstallForm f = new UninstallForm())
-                        {
-                            if (f.ShowDialog() != DialogResult.OK) return 1;
-                            o.Purge = f.Purge;
-                        }
-                    }
-                    if (!Product.CloseRunningPanel(!silent)) return 1;
-                    Installer.Uninstall(o);
-                    if (!silent)
-                        MessageBox.Show(o.Purge || !Directory.Exists(Product.InstallDir)
-                            ? "Sonar Live Panel was removed."
-                            : "Sonar Live Panel was removed. Your settings, saved track names and pin were kept in:\n" + Product.InstallDir,
-                            Product.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (!silent) return UninstallWithPrompts(!a.Contains("/fromapp")) ? 0 : 1;
+                    Product.CloseRunningPanel(false);
+                    Installer.Uninstall(new Options { Purge = a.Contains("/purge") });
                     return 0;
                 }
 
@@ -376,6 +401,12 @@ namespace LivePanelSetup
             optionsPage.Controls.AddRange(options);
             Button install = PageButton(optionsPage, upgrade ? "Update" : "Install", 300, Install);
             PageButton(optionsPage, "Cancel", 404, delegate { Close(); });
+            if (upgrade)   // already installed: offer removal right next to Update
+                PageButton(optionsPage, "Uninstall", 24, delegate
+                {
+                    // The confirmation dialog already asked, so close a running panel without a second question.
+                    if (Program.UninstallWithPrompts(false)) Close();
+                });
             AcceptButton = install;
 
             donePage.Visible = false;

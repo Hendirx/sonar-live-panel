@@ -17,8 +17,8 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("Sonar Live Panel")]
 [assembly: System.Reflection.AssemblyProduct("Sonar Live Panel")]
-[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
 // Load winmm/user32/shell32 only from System32, never from the exe's folder (DLL planting).
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -956,7 +956,7 @@ namespace LivePanel
 
         class BarLayout
         {
-            public Rectangle Live, Pinned, Tracks, Current, Knob, Refresh, Close;
+            public Rectangle Live, Pinned, Tracks, Current, Knob, Refresh, Menu, Close;
             public readonly List<KeyValuePair<int, Rectangle>> Tiles = new List<KeyValuePair<int, Rectangle>>();
         }
 
@@ -970,7 +970,8 @@ namespace LivePanel
 
             int right = ClientSize.Width - pad;
             l.Close = new Rectangle(right - D(28), y + (h - D(28)) / 2, D(28), D(28));
-            l.Refresh = new Rectangle(l.Close.Left - gap - D(78), y + (h - D(30)) / 2, D(78), D(30));
+            l.Menu = new Rectangle(l.Close.Left - gap - D(36), y + (h - D(30)) / 2, D(36), D(30));
+            l.Refresh = new Rectangle(l.Menu.Left - gap - D(78), y + (h - D(30)) / 2, D(78), D(30));
             l.Current = new Rectangle(l.Refresh.Left - gap - D(390), y, D(390), h);
             int knob = Math.Min(h - D(8), D(52));
             l.Knob = new Rectangle(l.Current.Right - D(140), y + (h - knob) / 2, knob, knob);
@@ -1003,6 +1004,7 @@ namespace LivePanel
                 if (l.Live.Contains(e.Location)) SetLive(!live);
                 else if (l.Refresh.Contains(e.Location)) mcu.Refresh();
                 else if (l.Close.Contains(e.Location)) Close();
+                else if (l.Menu.Contains(e.Location)) ShowMenu(new Point(l.Menu.Left, l.Menu.Top));
                 else if (ports == null && loopMidi == LoopMidi.Action.Missing && l.Tracks.Contains(e.Location)) Process.Start(LoopMidi.Url);
                 else foreach (KeyValuePair<int, Rectangle> t in l.Tiles)
                     if (t.Value.Contains(e.Location)) mcu.Select(t.Key);
@@ -1010,10 +1012,38 @@ namespace LivePanel
             else if (e.Button == MouseButtons.Right)
             {
                 // Right-click a track to pin it (always shown, skipped by switching); right-click the pinned one to unpin.
-                if (l.Pinned.Contains(e.Location)) SetPinned(null);
-                else foreach (KeyValuePair<int, Rectangle> t in l.Tiles)
-                    if (t.Value.Contains(e.Location)) SetPinned(mcu.Name(t.Key));
+                if (l.Pinned.Contains(e.Location)) { SetPinned(null); return; }
+                foreach (KeyValuePair<int, Rectangle> t in l.Tiles)
+                    if (t.Value.Contains(e.Location)) { SetPinned(mcu.Name(t.Key)); return; }
+                ShowMenu(e.Location);   // anywhere else on the bar
             }
+        }
+
+        // The ⋯ menu: Refresh, settings, guide, Uninstall and Close.
+        void ShowMenu(Point at)
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            string uninstaller = Path.Combine(dir, "Uninstall.exe");
+            ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Items.Add("Refresh from Sonar", null, delegate { mcu.Refresh(); });
+            menu.Items.Add("Open settings", null, delegate { OpenInNotepad(Path.Combine(dir, "settings.ini")); });
+            menu.Items.Add("Setup guide", null, delegate { OpenInNotepad(Path.Combine(dir, "README.md")); });
+            menu.Items.Add(new ToolStripSeparator());
+            ToolStripItem uninstall = menu.Items.Add("Uninstall Sonar Live Panel...", null, delegate
+            {
+                // The uninstaller confirms first, then closes this panel itself.
+                Process.Start(new ProcessStartInfo(uninstaller, "/uninstall /fromapp") { WorkingDirectory = dir });
+            });
+            uninstall.Enabled = File.Exists(uninstaller);   // only in an installed copy
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Close", null, delegate { Close(); });
+            menu.Closed += delegate { BeginInvoke((Action)menu.Dispose); };
+            menu.Show(this, at, ToolStripDropDownDirection.AboveRight);
+        }
+
+        static void OpenInNotepad(string path)
+        {
+            if (File.Exists(path)) Process.Start("notepad.exe", "\"" + path + "\"");
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -1148,6 +1178,8 @@ namespace LivePanel
 
                 Fill(g, l.Refresh, l.Refresh.Height / 2, Tile);
                 DrawLabel(g, "Refresh", smallBold, l.Refresh, Fg, TextFormatFlags.HorizontalCenter);
+                Fill(g, l.Menu, l.Menu.Height / 2, Tile);
+                DrawLabel(g, "⋯", smallBold, l.Menu, Fg, TextFormatFlags.HorizontalCenter);
                 DrawLabel(g, "✕", smallBold, l.Close, Dim, TextFormatFlags.HorizontalCenter);
             }
         }

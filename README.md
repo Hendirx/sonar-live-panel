@@ -69,8 +69,14 @@ Get-FileHash .\SonarLivePanel-Setup.exe -Algorithm SHA256
 
 - **Update**: run a newer `SonarLivePanel-Setup.exe`. It closes the panel if it's running and
   replaces the program. Your `settings.ini`, saved track names and pin are kept.
-- **Uninstall**: Windows **Settings → Apps → Installed apps → Sonar Live Panel →
-  Uninstall**. You can choose to also delete your settings, names and pin.
+- **Uninstall**: any of these:
+  - run `SonarLivePanel-Setup.exe` again and click **Uninstall** (next to **Update**)
+  - the panel's **⋯** menu → **Uninstall Sonar Live Panel…**
+  - Start Menu → **Sonar Live Panel** folder → **Uninstall Sonar Live Panel**
+  - Windows **Settings → Apps → Installed apps → Sonar Live Panel → Uninstall**
+
+  Each asks for confirmation first, and you can choose to also delete your settings, names
+  and pin.
 - **Where it lives**: `%LOCALAPPDATA%\Programs\Sonar Live Panel`. Your `settings.ini`,
   `names.txt` and `pinned.txt` are there too.
 - **Silent install** (e.g. for a second laptop): `SonarLivePanel-Setup.exe /silent`,
@@ -83,7 +89,9 @@ With your MIDI keyboard plugged in, start **Sonar Live Panel** from the Start Me
 then Sonar. The panel starts loopMIDI if it isn't already running, and Sonar only looks for
 MIDI ports when it starts, so this order makes sure Sonar finds them. If loopMIDI isn't
 installed, the bar says so; click the message to go to its download page. The panel docks along the bottom of the screen, and a maximized Sonar resizes
-to sit above it. Close it with the **✕** at its right end.
+to sit above it. Close it with the **✕** at its right end. The **⋯** button (or a right-click
+on an empty part of the bar) opens a menu with Refresh, Open settings, the setup guide,
+Uninstall and Close.
 
 The bar shows one button per track, the current track's volume and pan, and a **Refresh**
 button. Sonar ignores the panel while a dialog such as Preferences is open. If no tracks
