@@ -1,0 +1,8 @@
+# Build output (build.bat / test.bat)
+*.exe
+dist/
+
+# Personal files the panel writes next to itself
+names.txt
+pinned.txt
+debug-log.txt
