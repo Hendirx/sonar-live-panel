@@ -15,18 +15,23 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("Sonar Live Panel")]
 [assembly: System.Reflection.AssemblyProduct("Sonar Live Panel")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.0.1.0")]
+// Load winmm/user32/shell32 only from System32, never from the exe's folder (DLL planting).
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
 namespace LivePanel
 {
     static class Program
     {
         [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+        [DllImport("kernel32.dll")] static extern bool SetDefaultDllDirectories(int flags);
+        const int LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x800;
 
         [STAThread]
         static void Main()
         {
+            SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);   // same for DLLs Windows loads on our behalf
             SetProcessDPIAware();   // draw at real pixel size instead of being stretched blurry by Windows
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             Settings s = Settings.Load(Path.Combine(dir, "settings.ini"));

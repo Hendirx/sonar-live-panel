@@ -20,6 +20,13 @@ Get `SonarLivePanel-Setup.exe` from the [Releases](../../releases) page and run 
 for your Windows user, so no admin rights are needed. Windows may show a SmartScreen warning
 because the installer isn't code-signed: click **More info → Run anyway**.
 
+To check that your download is the genuine file, compare its checksum with the one listed in
+the release notes (and in `SonarLivePanel-Setup.exe.sha256` next to it):
+
+```powershell
+Get-FileHash .\SonarLivePanel-Setup.exe -Algorithm SHA256
+```
+
 **You'll need:**
 - Windows 10 or 11
 - Cakewalk Sonar (also likely to work with Cakewalk by BandLab, though that's untested)

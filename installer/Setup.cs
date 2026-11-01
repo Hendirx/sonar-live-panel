@@ -18,8 +18,11 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Sonar Live Panel Setup")]
 [assembly: AssemblyProduct("Sonar Live Panel")]
-[assembly: AssemblyVersion("1.0.0.0")]       // keep in step with LivePanel.cs
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.0.1.0")]       // keep in step with LivePanel.cs
+[assembly: AssemblyFileVersion("1.0.1.0")]
+// Setup usually runs from Downloads, where a malicious site could have dropped a fake DLL:
+// load winmm/user32/shell32 only from System32, never from Setup's own folder.
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
 namespace LivePanelSetup
 {
@@ -51,9 +54,16 @@ namespace LivePanelSetup
         public static string StartMenuLink { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), Name + ".lnk"); } }
         public static string DesktopLink { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Name + ".lnk"); } }
 
+        // Either the Apps entry or the program file counts, so a copy that lost its Apps entry is still
+        // offered an update (which re-registers it) rather than a fresh install.
         public static bool IsInstalled
         {
-            get { using (RegistryKey k = Registry.CurrentUser.OpenSubKey(UninstallKey)) return k != null; }
+            get
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(UninstallKey))
+                    if (k != null) return true;
+                return File.Exists(ExePath);
+            }
         }
 
         public static bool StartsWithWindows
@@ -240,10 +250,13 @@ namespace LivePanelSetup
     static class Program
     {
         [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+        [DllImport("kernel32.dll")] static extern bool SetDefaultDllDirectories(int flags);
+        const int LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x800;
 
         [STAThread]
         static int Main(string[] args)
         {
+            SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);   // same for DLLs Windows loads on our behalf
             List<string> a = new List<string>();
             foreach (string s in args) a.Add(s.ToLowerInvariant());
             bool silent = a.Contains("/silent");
