@@ -204,6 +204,15 @@ namespace LivePanel
             q.PinnedName = null;
             Check(q.PlayableStrip(0) == 0, "unpinning restores normal keys");
 
+            // loopMIDI: start it when installed but not running, warn when it isn't installed
+            Check(LoopMidi.Decide(true, true, null, 99999) == LoopMidi.Action.None, "loopMIDI running: nothing to do");
+            Check(LoopMidi.Decide(false, true, @"C:\x\loopMIDI.exe", 99999) == LoopMidi.Action.Start, "installed, not running: start it");
+            Check(LoopMidi.Decide(false, true, @"C:\x\loopMIDI.exe", 3000) == LoopMidi.Action.Wait, "just started: wait for its ports");
+            Check(LoopMidi.Decide(false, true, null, 99999) == LoopMidi.Action.Missing, "not installed: warn");
+            Check(LoopMidi.Decide(false, false, @"C:\x\loopMIDI.exe", 99999) == LoopMidi.Action.NotRunning, "auto-start off: just say so");
+            Check(LoopMidi.FindExe(@"C:\definitely\not\here.exe") == null || LoopMidi.FindExe(@"C:\definitely\not\here.exe").EndsWith("loopMIDI.exe"),
+                "a bad LoopMidiPath falls back to the usual folders");
+
             Console.WriteLine(fails == 0 ? "ALL PASSED" : fails + " FAILED");
             return fails;
         }

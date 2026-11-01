@@ -3,6 +3,8 @@
 // Built with the C# 5 compiler that ships with Windows (see build.bat), so no C# 6+ syntax.
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Globalization;
@@ -15,8 +17,8 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("Sonar Live Panel")]
 [assembly: System.Reflection.AssemblyProduct("Sonar Live Panel")]
-[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
 // Load winmm/user32/shell32 only from System32, never from the exe's folder (DLL planting).
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -52,6 +54,8 @@ namespace LivePanel
         public double VolumeStep = 0.02;
         public int PanTicks = 1;
         public bool Debug = false;
+        public bool StartLoopMidi = true;
+        public string LoopMidiPath = "";
 
         // Action -> comma-separated keys (System.Windows.Forms.Keys names, optional Ctrl+/Alt+/Shift+).
         public readonly Dictionary<string, string> Keys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -89,6 +93,8 @@ namespace LivePanel
                     case "volumestep": double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out s.VolumeStep); break;
                     case "panticks": int.TryParse(v, out s.PanTicks); break;
                     case "debug": s.Debug = Bool(v); break;
+                    case "startloopmidi": s.StartLoopMidi = Bool(v); break;
+                    case "loopmidipath": s.LoopMidiPath = v; break;
                     default: if (s.Keys.ContainsKey(k)) s.Keys[k] = v; break;
                 }
             }
@@ -371,6 +377,40 @@ namespace LivePanel
         }
     }
 
+    // loopMIDI provides the two virtual ports the panel and Sonar talk over, so the panel starts it if needed.
+    static class LoopMidi
+    {
+        public const string Url = "https://www.tobias-erichsen.de/software/loopmidi.html";
+
+        public enum Action { None, Start, Wait, Missing, NotRunning }
+
+        // running: loopMIDI is up. exe: where it's installed, or null. msSinceStart: since we last launched it.
+        public static Action Decide(bool running, bool autoStart, string exe, long msSinceStart)
+        {
+            if (running) return Action.None;
+            if (exe == null) return Action.Missing;
+            if (!autoStart) return Action.NotRunning;
+            return msSinceStart < 15000 ? Action.Wait : Action.Start;   // give it time to create its ports
+        }
+
+        public static bool IsRunning()
+        {
+            Process[] ps = Process.GetProcessesByName("loopMIDI");
+            foreach (Process p in ps) p.Dispose();
+            return ps.Length > 0;
+        }
+
+        // Its installer doesn't record the exe's location, so check the usual install folders.
+        public static string FindExe(string configured)
+        {
+            List<string> candidates = new List<string>();
+            if (!string.IsNullOrEmpty(configured)) candidates.Add(configured);
+            foreach (Environment.SpecialFolder f in new[] { Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.ProgramFiles })
+                candidates.Add(Path.Combine(Environment.GetFolderPath(f), @"Tobias Erichsen\loopMIDI\loopMIDI.exe"));
+            return candidates.Find(File.Exists);
+        }
+    }
+
     // A pair of WinMM MIDI ports (e.g. two loopMIDI ports) with sysex input.
     sealed class MidiPorts : IDisposable
     {
@@ -457,7 +497,7 @@ namespace LivePanel
             int inId = Find(InputNames(), inName), outId = Find(OutputNames(), outName);
             if (inId < 0 || outId < 0)
             {
-                error = string.Format("MIDI port \"{0}\" not found. Is loopMIDI running with both ports?", inId < 0 ? inName : outName);
+                error = MissingPortHint(inId < 0 ? inName : outName);
                 return null;
             }
             MidiPorts p = new MidiPorts();
@@ -483,6 +523,12 @@ namespace LivePanel
             }
             error = "";
             return p;
+        }
+
+        // Tells the user what to do when a port is missing, depending on whether loopMIDI is up.
+        public static string MissingPortHint(string port)
+        {
+            return string.Format("loopMIDI has no port named \"{0}\" yet. Open loopMIDI and add it.", port);
         }
 
         public void Start()
@@ -800,6 +846,8 @@ namespace LivePanel
             lastPortTry = Environment.TickCount;
             MidiPorts p = MidiPorts.Open(settings.InPort, settings.OutPort, out portError);
             if (p == null && log != null && portError != lastLoggedError) Log(lastLoggedError = portError);
+            if (p == null) CheckLoopMidi();
+            else loopMidi = LoopMidi.Action.None;
             if (p != null)
             {
                 Log("Ports open");
@@ -955,6 +1003,7 @@ namespace LivePanel
                 if (l.Live.Contains(e.Location)) SetLive(!live);
                 else if (l.Refresh.Contains(e.Location)) mcu.Refresh();
                 else if (l.Close.Contains(e.Location)) Close();
+                else if (ports == null && loopMidi == LoopMidi.Action.Missing && l.Tracks.Contains(e.Location)) Process.Start(LoopMidi.Url);
                 else foreach (KeyValuePair<int, Rectangle> t in l.Tiles)
                     if (t.Value.Contains(e.Location)) mcu.Select(t.Key);
             }
@@ -1019,9 +1068,31 @@ namespace LivePanel
             TextRenderer.DrawText(g, s, f, r, c, align | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter);
         }
 
+        LoopMidi.Action loopMidi = LoopMidi.Action.None;
+        int lastLoopMidiStart = int.MinValue / 2;
+
+        // Called while the ports can't be opened: starts loopMIDI if it's installed but not running.
+        void CheckLoopMidi()
+        {
+            string exe = LoopMidi.FindExe(settings.LoopMidiPath);
+            loopMidi = LoopMidi.Decide(LoopMidi.IsRunning(), settings.StartLoopMidi, exe, Environment.TickCount - lastLoopMidiStart);
+            if (loopMidi != LoopMidi.Action.Start) return;
+            lastLoopMidiStart = Environment.TickCount;
+            Log("Starting loopMIDI: " + exe);
+            try { Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = Path.GetDirectoryName(exe), WindowStyle = ProcessWindowStyle.Minimized }); }
+            catch (Win32Exception) { loopMidi = LoopMidi.Action.Missing; }
+        }
+
         string Status()
         {
-            if (ports == null) return portError;
+            if (ports == null)
+            {
+                if (loopMidi == LoopMidi.Action.Missing)
+                    return "loopMIDI is required but wasn't found. Click here to download it (or set LoopMidiPath in settings.ini)";
+                if (loopMidi == LoopMidi.Action.NotRunning) return "loopMIDI isn't running. Start it and the panel connects by itself";
+                if (Environment.TickCount - lastLoopMidiStart < 8000) return "Starting loopMIDI...";
+                return portError;
+            }
             if (!mcu.HostSeen) return "Ports open - waiting for Sonar (is the Mackie Control surface set up?)";
             if (!mcu.AnyTrack()) return "Connected, waiting for tracks (retrying). Sonar ignores the panel while a dialog is open";
             return "";

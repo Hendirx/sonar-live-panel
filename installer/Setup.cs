@@ -18,8 +18,8 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Sonar Live Panel Setup")]
 [assembly: AssemblyProduct("Sonar Live Panel")]
-[assembly: AssemblyVersion("1.0.1.0")]       // keep in step with LivePanel.cs
-[assembly: AssemblyFileVersion("1.0.1.0")]
+[assembly: AssemblyVersion("1.1.0.0")]       // keep in step with LivePanel.cs
+[assembly: AssemblyFileVersion("1.1.0.0")]
 // Setup usually runs from Downloads, where a malicious site could have dropped a fake DLL:
 // load winmm/user32/shell32 only from System32, never from Setup's own folder.
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

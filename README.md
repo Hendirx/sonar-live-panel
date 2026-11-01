@@ -41,8 +41,8 @@ Get-FileHash .\SonarLivePanel-Setup.exe -Algorithm SHA256
 ## One-time setup
 
 1. **Install loopMIDI** (free, by Tobias Erichsen) and create two ports, named exactly
-   `To Sonar` and `From Sonar`. Leave loopMIDI running. (Tick its "start minimized with
-   Windows" option so you don't forget it at a gig.)
+   `To Sonar` and `From Sonar`. loopMIDI remembers them. You don't need to start loopMIDI
+   yourself afterwards: the panel starts it if it isn't running.
 2. **Sonar → Edit → Preferences → MIDI → Devices**: each loopMIDI port shows up in both
    lists, but tick each one only once, alongside your MIDI keyboard:
    - *Inputs*: tick `To Sonar` only
@@ -79,8 +79,10 @@ Get-FileHash .\SonarLivePanel-Setup.exe -Algorithm SHA256
 
 ## Use
 
-Start loopMIDI and Sonar (with your MIDI keyboard already plugged in), then start
-**Sonar Live Panel** from the Start Menu. It docks along the bottom of the screen, and a maximized Sonar resizes
+With your MIDI keyboard plugged in, start **Sonar Live Panel** from the Start Menu **first**,
+then Sonar. The panel starts loopMIDI if it isn't already running, and Sonar only looks for
+MIDI ports when it starts, so this order makes sure Sonar finds them. If loopMIDI isn't
+installed, the bar says so; click the message to go to its download page. The panel docks along the bottom of the screen, and a maximized Sonar resizes
 to sit above it. Close it with the **✕** at its right end.
 
 The bar shows one button per track, the current track's volume and pan, and a **Refresh**
@@ -129,7 +131,12 @@ To change keys, ports or step sizes, edit `settings.ini` and restart the panel.
   [Cakewalk's Control Surface SDK](https://github.com/msmcleod/Cakewalk-Control-Surface-SDK)
   (`Surfaces/MackieControl`). Check there first for what Sonar does and doesn't send.
 - **Names appear in the small text, not the big text.** Set `NamesOnBottomRow=true`.
-- **"Port not found".** loopMIDI isn't running, or the port names don't match `settings.ini`.
+- **"loopMIDI has no port named …".** Open loopMIDI and add that port, or fix the port
+  names in `settings.ini`.
+- **"loopMIDI … wasn't found"** but it is installed. It's in an unusual folder: set
+  `LoopMidiPath=` in `settings.ini` to the full path of `loopMIDI.exe`. To stop the panel
+  starting loopMIDI at all, set `StartLoopMidi=false`.
+- **Sonar was already open when loopMIDI started.** Restart Sonar so it sees the ports.
 - **"Couldn't open port".** Another program has that loopMIDI port open. Only Sonar and this
   panel should use it.
 - **The highlight moves but your keyboard still plays the old synth.** Check both settings
