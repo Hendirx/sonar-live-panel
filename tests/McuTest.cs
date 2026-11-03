@@ -213,6 +213,29 @@ namespace LivePanel
             Check(LoopMidi.FindExe(@"C:\definitely\not\here.exe") == null || LoopMidi.FindExe(@"C:\definitely\not\here.exe").EndsWith("loopMIDI.exe"),
                 "a bad LoopMidiPath falls back to the usual folders");
 
+            // Macro keypad keys (F13-F24) stay active with LIVE off; ordinary keys don't
+            Check(PanelForm.IsKeypadKey((int)System.Windows.Forms.Keys.F13) && PanelForm.IsKeypadKey((int)System.Windows.Forms.Keys.F24), "F13-F24 count as keypad keys");
+            Check(!PanelForm.IsKeypadKey((int)System.Windows.Forms.Keys.F12) && !PanelForm.IsKeypadKey((int)System.Windows.Forms.Keys.D1), "F12 and 1 don't");
+
+            // Key text: settings format <-> key codes, and friendly labels
+            int km, kv;
+            Check(KeyCombo.TryParse("Ctrl+Shift+F13", out km, out kv) && km == (KeyCombo.MOD_CONTROL | KeyCombo.MOD_SHIFT) && kv == (int)System.Windows.Forms.Keys.F13, "parse Ctrl+Shift+F13");
+            Check(KeyCombo.Format(km, kv) == "Ctrl+Shift+F13", "format round-trips: " + KeyCombo.Format(km, kv));
+            Check(KeyCombo.TryParse("PageDown", out km, out kv) && KeyCombo.TryParse(KeyCombo.Format(km, kv), out km, out kv) && kv == (int)System.Windows.Forms.Keys.PageDown, "PageDown survives format/parse (Windows calls it Next)");
+            Check(!KeyCombo.TryParse("NotAKey", out km, out kv) && !KeyCombo.TryParse("Ctrl+", out km, out kv), "bad keys rejected");
+            Check(KeyCombo.LabelList("D1,NumPad1,F13") == "1, Num1, F13", "friendly list: " + KeyCombo.LabelList("D1,NumPad1,F13"));
+            Check(KeyCombo.LabelList("") == "(none)", "empty list shows (none)");
+
+            // Saving keys rewrites only the key lines, keeps comments, adds missing actions at the end
+            List<string> ini = new List<string> { "# my settings", "InPort=From Sonar", "Select1=D1", "; old", "select1=D9", "VolUp=Add" };
+            Dictionary<string, string> nk = Settings.DefaultKeys();
+            nk["Select1"] = "D1,Q";
+            nk["VolUp"] = "F24";
+            List<string> outLines = Settings.RewriteKeys(ini, nk);
+            Check(outLines[0] == "# my settings" && outLines[1] == "InPort=From Sonar" && outLines[2] == "Select1=D1,Q" && outLines[3] == "; old", "keeps comments, rewrites in place");
+            Check(outLines.FindAll(l => l.StartsWith("select1=", StringComparison.OrdinalIgnoreCase)).Count == 1, "duplicate action line dropped");
+            Check(outLines.Contains("VolUp=F24") && outLines.Contains("ToggleLive=Scroll") && outLines.Contains("PinVolUp=Shift+Oemplus,Shift+Add"), "missing actions appended");
+
             Console.WriteLine(fails == 0 ? "ALL PASSED" : fails + " FAILED");
             return fails;
         }

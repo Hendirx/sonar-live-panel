@@ -90,8 +90,16 @@ then Sonar. The panel starts loopMIDI if it isn't already running, and Sonar onl
 MIDI ports when it starts, so this order makes sure Sonar finds them. If loopMIDI isn't
 installed, the bar says so; click the message to go to its download page. The panel docks along the bottom of the screen, and a maximized Sonar resizes
 to sit above it. Close it with the **✕** at its right end. The **⋯** button (or a right-click
-on an empty part of the bar) opens a menu with Refresh, Open settings, the setup guide,
-Uninstall and Close.
+on an empty part of the bar) opens a menu with Refresh, Key bindings, Open settings, the setup
+guide, Uninstall and Close.
+
+### Changing the keys
+
+⋯ → **Key bindings…** lists every action with its keys. Pick an action, click **Add key…** and
+press the key you want. A macro keypad's key works too: press it and the panel records the
+right code. **Remove key…** takes one off, and **Reset all** goes back to the defaults. If a key
+already belongs to another action, it asks whether to move it. **Save** applies the new keys
+straight away and writes them to `settings.ini`.
 
 The bar shows one button per track, the current track's volume and pan, and a **Refresh**
 button. Sonar ignores the panel while a dialog such as Preferences is open. If no tracks
@@ -111,6 +119,32 @@ Mouse: click a track to pick it. The mouse wheel over the current-track box chan
 over the pan knob changes pan, and over the pinned box changes the pinned track's volume.
 The panel never takes keyboard focus from Sonar, so Sonar's own shortcuts like Space still work.
 
+### Using a macro keypad as a physical switcher
+
+A programmable keypad makes a hands-on track switcher. The panel listens for the extra
+function keys **F13–F24**, which no normal keyboard has, so they work **even with LIVE
+switched off**. Your computer keyboard can stay completely normal.
+
+In the keypad's own software, set its keys to send:
+
+| Keypad key | Send | Does |
+|---|---|---|
+| 1–8 | F13–F20 | Switch to track 1–8 (the pinned track is skipped) |
+| 9 / 10 | F21 / F22 | Previous / next track |
+| 11 / 12 | F23 / F24 | Volume down / up on the current track |
+
+This fits a 12-key pad such as the **SayoDevice OSU Keypad 12-Key**. Out of the box its keys send
+1–8, 9, 0, A and B, which Sonar treats as its own shortcuts, so change them first:
+
+1. Run SayoDevice's `Sayo_CLI_Windows.exe` and open the link it shows in Chrome or Firefox.
+2. Click a key tile. Leave **Key Mode** on *Default* and **Modifier Keys** on *None*, click the
+   pencil next to **General Keys**, pick the F-key from the table above, and click **Confirm**.
+3. When all twelve are set, click **Save Forever**. Without it the keypad forgets the changes.
+4. Check in Notepad: pressing the keys should type nothing.
+
+Other keypads that can send F13–F24 work the same way. To use other keys, set them in ⋯ → **Key bindings…**.
+The keypad's lights can't show which track is selected; the bar on screen does that.
+
 ### Pinning an always-on track (e.g. a guitar or vocal)
 
 **Right-click** a track to pin it. A pinned track gets its own box at the left with its
@@ -123,7 +157,8 @@ turn that track's **input echo** on in Sonar (or, for a backing track, just let 
 it. The panel can only reach tracks among the 8 Sonar is currently showing it, so with more
 than 8 tracks, keep the pinned one next to your synths.
 
-To change keys, ports or step sizes, edit `settings.ini` and restart the panel.
+To change keys, use ⋯ → **Key bindings…**. For ports or step sizes, edit `settings.ini`
+(⋯ → **Open settings**) and restart the panel.
 
 ## Tips and troubleshooting
 
@@ -152,7 +187,7 @@ To change keys, ports or step sizes, edit `settings.ini` and restart the panel.
 - **Plugged in a MIDI device while Sonar was open?** Restart Sonar. It only finds MIDI
   devices when it starts.
 - **A key "is taken by another app".** Another program grabbed that key globally. Pick a
-  different key in `settings.ini`.
+  different key in ⋯ → **Key bindings…**.
 
 ## Building from source
 

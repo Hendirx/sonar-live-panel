@@ -17,8 +17,8 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("Sonar Live Panel")]
 [assembly: System.Reflection.AssemblyProduct("Sonar Live Panel")]
-[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.0.0")]
 // Load winmm/user32/shell32 only from System32, never from the exe's folder (DLL planting).
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -57,22 +57,44 @@ namespace LivePanel
         public bool StartLoopMidi = true;
         public string LoopMidiPath = "";
 
+        public string FilePath;
+
+        // Every action the keys can trigger, in the order and words the Key bindings window shows.
+        public static readonly KeyValuePair<string, string>[] Actions =
+        {
+            Pair("ToggleLive", "Live on/off"),
+            Pair("Select1", "Track 1"), Pair("Select2", "Track 2"), Pair("Select3", "Track 3"), Pair("Select4", "Track 4"),
+            Pair("Select5", "Track 5"), Pair("Select6", "Track 6"), Pair("Select7", "Track 7"), Pair("Select8", "Track 8"),
+            Pair("PrevTrack", "Previous track"), Pair("NextTrack", "Next track"),
+            Pair("PrevBank", "Previous 8 tracks"), Pair("NextBank", "Next 8 tracks"),
+            Pair("VolDown", "Volume down"), Pair("VolUp", "Volume up"),
+            Pair("PanLeft", "Pan left"), Pair("PanRight", "Pan right"),
+            Pair("PinVolDown", "Pinned track volume down"), Pair("PinVolUp", "Pinned track volume up"),
+        };
+
+        static KeyValuePair<string, string> Pair(string a, string b) { return new KeyValuePair<string, string>(a, b); }
+
+        public static Dictionary<string, string> DefaultKeys()
+        {
+            return new Dictionary<string, string>(new Settings().Keys, StringComparer.OrdinalIgnoreCase);
+        }
+
         // Action -> comma-separated keys (System.Windows.Forms.Keys names, optional Ctrl+/Alt+/Shift+).
         public readonly Dictionary<string, string> Keys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             { "ToggleLive", "Scroll" },
-            { "Select1", "D1,NumPad1" }, { "Select2", "D2,NumPad2" }, { "Select3", "D3,NumPad3" }, { "Select4", "D4,NumPad4" },
-            { "Select5", "D5,NumPad5" }, { "Select6", "D6,NumPad6" }, { "Select7", "D7,NumPad7" }, { "Select8", "D8,NumPad8" },
-            { "PrevTrack", "Up" }, { "NextTrack", "Down" },
+            { "Select1", "D1,NumPad1,F13" }, { "Select2", "D2,NumPad2,F14" }, { "Select3", "D3,NumPad3,F15" }, { "Select4", "D4,NumPad4,F16" },
+            { "Select5", "D5,NumPad5,F17" }, { "Select6", "D6,NumPad6,F18" }, { "Select7", "D7,NumPad7,F19" }, { "Select8", "D8,NumPad8,F20" },
+            { "PrevTrack", "Up,F21" }, { "NextTrack", "Down,F22" },
             { "PrevBank", "PageUp" }, { "NextBank", "PageDown" },
-            { "VolDown", "OemMinus,Subtract" }, { "VolUp", "Oemplus,Add" },
+            { "VolDown", "OemMinus,Subtract,F23" }, { "VolUp", "Oemplus,Add,F24" },
             { "PanLeft", "Left,OemOpenBrackets" }, { "PanRight", "Right,OemCloseBrackets" },
             { "PinVolDown", "Shift+OemMinus,Shift+Subtract" }, { "PinVolUp", "Shift+Oemplus,Shift+Add" },
         };
 
         public static Settings Load(string path)
         {
-            Settings s = new Settings();
+            Settings s = new Settings { FilePath = path };
             if (!File.Exists(path)) return s;
             foreach (string raw in File.ReadAllLines(path))
             {
@@ -102,6 +124,121 @@ namespace LivePanel
         }
 
         static bool Bool(string v) { return v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase) || v.Equals("yes", StringComparison.OrdinalIgnoreCase); }
+
+        // Replaces each action's "Action=..." line, keeping comments and every other line; actions with no
+        // line yet are added at the end.
+        public static List<string> RewriteKeys(IEnumerable<string> lines, IDictionary<string, string> keys)
+        {
+            List<string> result = new List<string>();
+            HashSet<string> written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string line in lines)
+            {
+                string t = line.Trim();
+                int eq = t.IndexOf('=');
+                string name = eq > 0 && t[0] != '#' && t[0] != ';' ? t.Substring(0, eq).Trim() : null;
+                if (name != null && keys.ContainsKey(name))
+                {
+                    if (written.Add(name)) result.Add(name + "=" + keys[name]);   // drop duplicate lines for the same action
+                    continue;
+                }
+                result.Add(line);
+            }
+            foreach (KeyValuePair<string, string> a in Actions)
+                if (keys.ContainsKey(a.Key) && !written.Contains(a.Key)) result.Add(a.Key + "=" + keys[a.Key]);
+            return result;
+        }
+
+        public void SaveKeys()
+        {
+            string text = File.Exists(FilePath) ? File.ReadAllText(FilePath) : "";
+            string newline = text.Contains("\r\n") ? "\r\n" : "\n";
+            List<string> lines = new List<string>(text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None));
+            if (lines.Count > 0 && lines[lines.Count - 1].Length == 0) lines.RemoveAt(lines.Count - 1);
+            File.WriteAllText(FilePath, string.Join(newline, RewriteKeys(lines, Keys).ToArray()) + newline);
+        }
+    }
+
+    // A hotkey as written in settings.ini ("Ctrl+Shift+F13") and as shown to people ("Ctrl+Shift+F13", "↑", "Num1").
+    static class KeyCombo
+    {
+        public const int MOD_ALT = 1, MOD_CONTROL = 2, MOD_SHIFT = 4;
+
+        public static bool TryParse(string combo, out int mods, out int vk)
+        {
+            mods = 0;
+            vk = 0;
+            foreach (string part in combo.Split('+'))
+            {
+                string p = part.Trim();
+                if (p.Equals("Ctrl", StringComparison.OrdinalIgnoreCase) || p.Equals("Control", StringComparison.OrdinalIgnoreCase)) mods |= MOD_CONTROL;
+                else if (p.Equals("Alt", StringComparison.OrdinalIgnoreCase)) mods |= MOD_ALT;
+                else if (p.Equals("Shift", StringComparison.OrdinalIgnoreCase)) mods |= MOD_SHIFT;
+                else
+                {
+                    Keys k;
+                    if (p.Length == 0 || !Enum.TryParse(p, true, out k)) return false;
+                    vk = (int)(k & System.Windows.Forms.Keys.KeyCode);
+                }
+            }
+            return vk != 0;
+        }
+
+        static string Prefix(int mods)
+        {
+            return ((mods & MOD_CONTROL) != 0 ? "Ctrl+" : "") + ((mods & MOD_ALT) != 0 ? "Alt+" : "") + ((mods & MOD_SHIFT) != 0 ? "Shift+" : "");
+        }
+
+        public static string Format(int mods, int vk) { return Prefix(mods) + (Keys)vk; }
+
+        public static string Label(int mods, int vk)
+        {
+            Keys k = (Keys)vk;
+            string s = Prefix(mods);
+            if (k >= System.Windows.Forms.Keys.D0 && k <= System.Windows.Forms.Keys.D9) return s + (char)('0' + (k - System.Windows.Forms.Keys.D0));
+            if (k >= System.Windows.Forms.Keys.NumPad0 && k <= System.Windows.Forms.Keys.NumPad9) return s + "Num" + (k - System.Windows.Forms.Keys.NumPad0);
+            switch (k)
+            {
+                case System.Windows.Forms.Keys.Up: return s + "↑";
+                case System.Windows.Forms.Keys.Down: return s + "↓";
+                case System.Windows.Forms.Keys.Left: return s + "←";
+                case System.Windows.Forms.Keys.Right: return s + "→";
+                case System.Windows.Forms.Keys.PageUp: return s + "PgUp";
+                case System.Windows.Forms.Keys.PageDown: return s + "PgDn";
+                case System.Windows.Forms.Keys.OemMinus: return s + "-";
+                case System.Windows.Forms.Keys.Oemplus: return s + "=";
+                case System.Windows.Forms.Keys.OemOpenBrackets: return s + "[";
+                case System.Windows.Forms.Keys.OemCloseBrackets: return s + "]";
+                case System.Windows.Forms.Keys.Oemcomma: return s + ",";
+                case System.Windows.Forms.Keys.OemPeriod: return s + ".";
+                case System.Windows.Forms.Keys.OemQuestion: return s + "/";
+                case System.Windows.Forms.Keys.OemSemicolon: return s + ";";
+                case System.Windows.Forms.Keys.OemQuotes: return s + "'";
+                case System.Windows.Forms.Keys.OemPipe: return s + "\\";
+                case System.Windows.Forms.Keys.Oemtilde: return s + "`";
+                case System.Windows.Forms.Keys.Add: return s + "Num+";
+                case System.Windows.Forms.Keys.Subtract: return s + "Num-";
+                case System.Windows.Forms.Keys.Multiply: return s + "Num*";
+                case System.Windows.Forms.Keys.Divide: return s + "Num/";
+                case System.Windows.Forms.Keys.Decimal: return s + "Num.";
+                case System.Windows.Forms.Keys.Return: return s + "Enter";
+                case System.Windows.Forms.Keys.Back: return s + "Backspace";
+                case System.Windows.Forms.Keys.Capital: return s + "Caps Lock";
+                case System.Windows.Forms.Keys.Scroll: return s + "Scroll Lock";
+                default: return s + k;
+            }
+        }
+
+        // Friendly text for a settings value like "D1,NumPad1,F13" -> "1, Num1, F13".
+        public static string LabelList(string value)
+        {
+            List<string> parts = new List<string>();
+            foreach (string combo in value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int mods, vk;
+                parts.Add(TryParse(combo, out mods, out vk) ? Label(mods, vk) : combo.Trim() + " (?)");
+            }
+            return parts.Count == 0 ? "(none)" : string.Join(", ", parts.ToArray());
+        }
     }
 
     // The Mackie Control protocol side: no Windows UI or MIDI calls, so it can be tested on its own.
@@ -626,7 +763,16 @@ namespace LivePanel
         static readonly Color Accent = Color.FromArgb(240, 168, 48), AccentFg = Color.FromArgb(24, 20, 12), LiveOn = Color.FromArgb(62, 207, 110);
         static readonly Color Pinned = Color.FromArgb(24, 58, 62), PinnedFg = Color.FromArgb(110, 200, 205);
 
-        class Binding { public string Action; public int Mods, Vk, Id; public bool Registered; }
+        class Binding
+        {
+            public string Action;
+            public int Mods, Vk, Id;
+            public bool Registered;
+            // F13-F24 only come from macro keypads, never from typing, so they stay active with LIVE off.
+            public bool AlwaysOn { get { return IsKeypadKey(Vk); } }
+        }
+
+        public static bool IsKeypadKey(int vk) { return vk >= (int)Keys.F13 && vk <= (int)Keys.F24; }
 
         readonly Settings settings;
         readonly Mcu mcu = new Mcu();
@@ -799,19 +945,8 @@ namespace LivePanel
                 if (kv.Key != "ToggleLive" && !actions.ContainsKey(kv.Key)) continue;
                 foreach (string combo in kv.Value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    int mods = 0, vk = 0;
-                    try
-                    {
-                        foreach (string part in combo.Split('+'))
-                        {
-                            string p = part.Trim();
-                            if (p.Equals("Ctrl", StringComparison.OrdinalIgnoreCase) || p.Equals("Control", StringComparison.OrdinalIgnoreCase)) mods |= MOD_CONTROL;
-                            else if (p.Equals("Alt", StringComparison.OrdinalIgnoreCase)) mods |= MOD_ALT;
-                            else if (p.Equals("Shift", StringComparison.OrdinalIgnoreCase)) mods |= MOD_SHIFT;
-                            else vk = (int)((Keys)Enum.Parse(typeof(Keys), p, true) & Keys.KeyCode);
-                        }
-                    }
-                    catch (ArgumentException)
+                    int mods, vk;
+                    if (!KeyCombo.TryParse(combo, out mods, out vk))
                     {
                         keyProblems.Add("unknown key \"" + combo.Trim() + "\"");
                         continue;
@@ -828,13 +963,51 @@ namespace LivePanel
             if (!b.Registered) keyProblems.Add(KeyLabel(b) + " is taken by another app");
         }
 
+        // Opens the Key bindings window. Hotkeys are released while it's open so the keys you press reach it
+        // instead of switching tracks; saving writes settings.ini and applies the new keys at once.
+        void EditKeys()
+        {
+            ReleaseHotkeys();
+            try
+            {
+                using (KeysForm f = new KeysForm(settings.Keys, scale) { TopMost = TopMost })
+                {
+                    if (f.ShowDialog(this) != DialogResult.OK) return;
+                    settings.Keys.Clear();
+                    foreach (KeyValuePair<string, string> kv in f.Result) settings.Keys[kv.Key] = kv.Value;
+                    try { settings.SaveKeys(); }
+                    catch (Exception ex)
+                    {
+                        if (!(ex is IOException) && !(ex is UnauthorizedAccessException)) throw;
+                        MessageBox.Show(this, "The new keys work now, but couldn't be saved to settings.ini: " + ex.Message, Text);
+                    }
+                }
+            }
+            finally { ReloadBindings(); }
+        }
+
+        void ReleaseHotkeys()
+        {
+            foreach (Binding b in bindings)
+                if (b.Registered) { UnregisterHotKey(Handle, b.Id); b.Registered = false; }
+        }
+
+        void ReloadBindings()
+        {
+            ReleaseHotkeys();
+            bindings.Clear();
+            keyProblems.Clear();
+            ParseBindings();
+            SetLive(live);
+        }
+
         void SetLive(bool on)
         {
             live = on;
             keyProblems.RemoveAll(p => p.EndsWith("another app"));
             foreach (Binding b in bindings)
             {
-                if (b.Action == "ToggleLive") { if (!b.Registered) Register(b); continue; }
+                if (b.Action == "ToggleLive" || b.AlwaysOn) { if (!b.Registered) Register(b); continue; }
                 if (on && !b.Registered) Register(b);
                 else if (!on && b.Registered) { UnregisterHotKey(Handle, b.Id); b.Registered = false; }
             }
@@ -938,7 +1111,7 @@ namespace LivePanel
                 if (b != null)
                 {
                     if (b.Action == "ToggleLive") SetLive(!live);
-                    else if (live) actions[b.Action]();
+                    else if (live || b.AlwaysOn) actions[b.Action]();
                 }
                 return;
             }
@@ -1026,6 +1199,7 @@ namespace LivePanel
             string uninstaller = Path.Combine(dir, "Uninstall.exe");
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("Refresh from Sonar", null, delegate { mcu.Refresh(); });
+            menu.Items.Add("Key bindings...", null, delegate { BeginInvoke((Action)EditKeys); });
             menu.Items.Add("Open settings", null, delegate { OpenInNotepad(Path.Combine(dir, "settings.ini")); });
             menu.Items.Add("Setup guide", null, delegate { OpenInNotepad(Path.Combine(dir, "README.md")); });
             menu.Items.Add(new ToolStripSeparator());
@@ -1243,30 +1417,209 @@ namespace LivePanel
             return b == null ? "?" : KeyLabel(b);
         }
 
-        static string KeyLabel(Binding b)
+        static string KeyLabel(Binding b) { return KeyCombo.Label(b.Mods & (MOD_ALT | MOD_CONTROL | MOD_SHIFT), b.Vk); }
+    }
+
+    // Edit the hotkeys: pick an action, click Add key and press the key (a keypad key works too).
+    class KeysForm : Form
+    {
+        readonly Dictionary<string, string> keys;
+        readonly ListView list = new ListView();
+        readonly float scale;
+
+        public Dictionary<string, string> Result { get { return keys; } }
+
+        int D(int v) { return (int)(v * scale); }
+        Point Pt(int x, int y) { return new Point(D(x), D(y)); }
+        Size Sz(int w, int h) { return new Size(D(w), D(h)); }
+
+        public KeysForm(Dictionary<string, string> current, float scale)
         {
-            string s = "";
-            if ((b.Mods & MOD_CONTROL) != 0) s += "Ctrl+";
-            if ((b.Mods & MOD_ALT) != 0) s += "Alt+";
-            if ((b.Mods & MOD_SHIFT) != 0) s += "Shift+";
-            Keys k = (Keys)b.Vk;
-            if (k >= Keys.D0 && k <= Keys.D9) return s + (char)('0' + (k - Keys.D0));
-            if (k >= Keys.NumPad0 && k <= Keys.NumPad9) return s + "Num" + (k - Keys.NumPad0);
-            switch (k)
+            this.scale = scale;
+            keys = new Dictionary<string, string>(current, StringComparer.OrdinalIgnoreCase);
+            Text = "Key bindings";
+            Font = new Font("Segoe UI", 9F);
+            AutoScaleMode = AutoScaleMode.None;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterScreen;
+            ClientSize = Sz(620, 520);
+
+            Label hint = new Label
             {
-                case Keys.Up: return s + "↑";
-                case Keys.Down: return s + "↓";
-                case Keys.Left: return s + "←";
-                case Keys.Right: return s + "→";
-                case Keys.PageUp: return s + "PgUp";
-                case Keys.PageDown: return s + "PgDn";
-                case Keys.OemMinus: return s + "-";
-                case Keys.Oemplus: return s + "=";
-                case Keys.OemOpenBrackets: return s + "[";
-                case Keys.OemCloseBrackets: return s + "]";
-                case Keys.Scroll: return s + "Scroll Lock";
-                default: return s + k;
+                Text = "Pick an action, click Add key, then press the key you want (a keypad key works too). F13–F24 work even with LIVE off.",
+                Location = Pt(16, 12), Size = Sz(588, 36)
+            };
+            list.View = View.Details;
+            list.FullRowSelect = true;
+            list.HideSelection = false;
+            list.MultiSelect = false;
+            list.Location = Pt(16, 52);
+            list.Size = Sz(440, 410);
+            list.Columns.Add("Action", D(190));
+            list.Columns.Add("Keys", D(226));
+            list.DoubleClick += delegate { AddKey(); };
+
+            Controls.Add(hint);
+            Controls.Add(list);
+            Btn("&Add key...", 472, 52, delegate { AddKey(); });
+            Btn("&Remove key...", 472, 90, RemoveKey);
+            Btn("Re&set all", 472, 146, delegate
+            {
+                if (MessageBox.Show(this, "Put every key back to how it was when installed?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                keys.Clear();
+                foreach (KeyValuePair<string, string> kv in Settings.DefaultKeys()) keys[kv.Key] = kv.Value;
+                Fill();
+            });
+            AcceptButton = Btn("&Save", 400, 476, delegate { DialogResult = DialogResult.OK; });
+            CancelButton = Btn("Cancel", 508, 476, delegate { DialogResult = DialogResult.Cancel; });
+            Fill();
+        }
+
+        Button Btn(string text, int x, int y, EventHandler click)
+        {
+            bool small = text == "&Save" || text == "Cancel";
+            Button b = new Button { Text = text, Location = Pt(x, y), Size = Sz(small ? 96 : 132, 30) };
+            b.Click += click;
+            Controls.Add(b);
+            return b;
+        }
+
+        static List<string> Split(string value)
+        {
+            List<string> parts = new List<string>();
+            foreach (string p in (value ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                if (p.Trim().Length > 0) parts.Add(p.Trim());
+            return parts;
+        }
+
+        string Get(string action)
+        {
+            string v;
+            return keys.TryGetValue(action, out v) ? v : "";
+        }
+
+        void Fill()
+        {
+            int sel = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : 0;
+            list.BeginUpdate();
+            list.Items.Clear();
+            foreach (KeyValuePair<string, string> a in Settings.Actions)
+            {
+                ListViewItem item = new ListViewItem(a.Value) { Tag = a.Key };
+                item.SubItems.Add(KeyCombo.LabelList(Get(a.Key)));
+                list.Items.Add(item);
             }
+            list.EndUpdate();
+            list.Items[Math.Min(sel, list.Items.Count - 1)].Selected = true;
+        }
+
+        string SelectedAction() { return list.SelectedItems.Count > 0 ? (string)list.SelectedItems[0].Tag : null; }
+
+        static string Describe(string action)
+        {
+            foreach (KeyValuePair<string, string> a in Settings.Actions)
+                if (a.Key == action) return a.Value;
+            return action;
+        }
+
+        void AddKey()
+        {
+            string action = SelectedAction();
+            if (action == null) return;
+            int mods, vk;
+            using (CaptureForm c = new CaptureForm(Describe(action), scale))
+            {
+                if (c.ShowDialog(this) != DialogResult.OK) return;
+                mods = c.Mods;
+                vk = c.Vk;
+            }
+
+            // A key can only do one thing: offer to move it if another action already has it.
+            foreach (KeyValuePair<string, string> a in Settings.Actions)
+            {
+                List<string> combos = Split(Get(a.Key));
+                int idx = combos.FindIndex(cmb => { int m, v; return KeyCombo.TryParse(cmb, out m, out v) && m == mods && v == vk; });
+                if (idx < 0) continue;
+                if (a.Key == action) return;
+                string q = string.Format("{0} is already used for \"{1}\". Move it to \"{2}\"?", KeyCombo.Label(mods, vk), a.Value, Describe(action));
+                if (MessageBox.Show(this, q, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                combos.RemoveAt(idx);
+                keys[a.Key] = string.Join(",", combos.ToArray());
+            }
+            List<string> mine = Split(Get(action));
+            mine.Add(KeyCombo.Format(mods, vk));
+            keys[action] = string.Join(",", mine.ToArray());
+            Fill();
+        }
+
+        void RemoveKey(object sender, EventArgs e)
+        {
+            string action = SelectedAction();
+            if (action == null) return;
+            List<string> combos = Split(Get(action));
+            if (combos.Count == 0) return;
+            ContextMenuStrip menu = new ContextMenuStrip();
+            foreach (string combo in combos)
+            {
+                string c = combo;
+                int m, v;
+                string label = KeyCombo.TryParse(c, out m, out v) ? KeyCombo.Label(m, v) : c;
+                menu.Items.Add("Remove " + label, null, delegate
+                {
+                    combos.Remove(c);
+                    keys[action] = string.Join(",", combos.ToArray());
+                    Fill();
+                });
+            }
+            menu.Closed += delegate { BeginInvoke((Action)menu.Dispose); };
+            Control b = (Control)sender;
+            menu.Show(b, new Point(0, b.Height));
+        }
+    }
+
+    // "Press a key" box: records the next key (with Ctrl/Alt/Shift), including arrows, Enter and F13-F24.
+    class CaptureForm : Form
+    {
+        public int Mods, Vk;
+
+        public CaptureForm(string action, float scale)
+        {
+            Text = "Press a key";
+            Font = new Font("Segoe UI", 10F);
+            AutoScaleMode = AutoScaleMode.None;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            ClientSize = new Size((int)(380 * scale), (int)(110 * scale));
+            Controls.Add(new Label
+            {
+                Text = "Press the key for “" + action + "”.\r\n(Esc cancels.)",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter
+            });
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            Keys code = keyData & Keys.KeyCode;
+            if (code == Keys.ShiftKey || code == Keys.ControlKey || code == Keys.Menu || code == Keys.LWin || code == Keys.RWin)
+                return true;   // wait for the actual key
+            if (code == Keys.Escape && (keyData & Keys.Modifiers) == 0)
+            {
+                DialogResult = DialogResult.Cancel;
+                return true;
+            }
+            Mods = ((keyData & Keys.Control) != 0 ? KeyCombo.MOD_CONTROL : 0)
+                 | ((keyData & Keys.Alt) != 0 ? KeyCombo.MOD_ALT : 0)
+                 | ((keyData & Keys.Shift) != 0 ? KeyCombo.MOD_SHIFT : 0);
+            Vk = (int)code;
+            DialogResult = DialogResult.OK;
+            return true;
         }
     }
 }
